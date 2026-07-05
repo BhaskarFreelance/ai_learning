@@ -1,2 +1,19 @@
 .env
-venv/**
+
+# Python virtual environments
+venv/
+.venv/
+ENV/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor settings
+.vscode/
+.idea/
