@@ -4,8 +4,14 @@ This is a small wrapper that exposes a familiar `create_db`, `connect`, and
 `add`/`search` surface. It requires `lancedb` to be installed. If `lancedb`
 is missing the adapter will raise a helpful error at runtime.
 """
+import json
 import os
 from typing import Any, Dict, List, Optional
+
+try:
+    import pyarrow as pa
+except Exception:  # pragma: no cover - optional dependency
+    pa = None
 
 try:
     import lancedb
@@ -21,17 +27,17 @@ class LanceCollection:
     def __init__(self, client: Any, name: str):
         self.client = client
         self.name = name
+        self.table = None
         # try to open existing table/collection; creation handled at manager
-        if hasattr(client, "open_table"):
-            self.table = client.open_table(name)
-        elif hasattr(client, "table"):
-            self.table = client.table(name)
-        else:
-            # fallback: client may act as a DB with attributes
-            try:
+        try:
+            if hasattr(client, "open_table"):
+                self.table = client.open_table(name)
+            elif hasattr(client, "table"):
+                self.table = client.table(name)
+            else:
                 self.table = client[name]
-            except Exception:
-                self.table = None
+        except Exception:
+            self.table = None
 
     def add(self, vector: List[float], metadata: Optional[Dict[str, Any]] = None, id: Optional[str] = None) -> str:
         if lancedb is None:
@@ -39,7 +45,7 @@ class LanceCollection:
         if self.table is None:
             raise LanceDBError("LanceDB table is not available")
         # Try several possible insert/upsert methods depending on lancedb version
-        row = {"embedding": vector, "metadata": metadata or {}}
+        row = {"embedding": vector, "metadata": json.dumps(metadata or {})}
         if id is not None:
             row["id"] = id
         try:
@@ -63,18 +69,57 @@ class LanceCollection:
         # Try the common search API shapes
         try:
             if hasattr(self.table, "search"):
-                res = self.table.search(query, limit=top_k)
-                # results might be an iterable of objects with .scores and .rows
-                out = []
-                for hit in res:
-                    # attempt common attributes
+                try:
+                    res = self.table.search(query, vector_column_name="embedding")
+                except TypeError:
+                    res = self.table.search(query)
+
+                if hasattr(res, "limit"):
+                    res = res.limit(top_k)
+
+                rows = []
+                if hasattr(res, "to_list"):
                     try:
-                        score = getattr(hit, "score", None) or getattr(hit, "distance", None) or 0
-                        payload = getattr(hit, "payload", None) or getattr(hit, "row", None) or hit
+                        rows = res.to_list()
+                    except Exception:
+                        rows = []
+                elif hasattr(res, "to_arrow"):
+                    try:
+                        rows = res.to_arrow().to_pylist()
+                    except Exception:
+                        rows = []
+                else:
+                    try:
+                        rows = list(res)
+                    except Exception:
+                        rows = []
+
+                out = []
+                for hit in rows:
+                    try:
+                        score = hit.get("_distance", 0) if isinstance(hit, dict) else getattr(hit, "score", None) or getattr(hit, "distance", None) or 0
                     except Exception:
                         score = 0
-                        payload = hit
-                    out.append({"id": getattr(payload, "id", None), "score": score, "metadata": getattr(payload, "metadata", {})})
+
+                    metadata = None
+                    if isinstance(hit, dict):
+                        metadata = hit.get("metadata")
+                    else:
+                        metadata = getattr(hit, "metadata", None)
+
+                    if isinstance(metadata, str):
+                        try:
+                            metadata = json.loads(metadata)
+                        except Exception:
+                            metadata = {}
+                    elif metadata is None:
+                        metadata = {}
+
+                    out.append({
+                        "id": None,
+                        "score": score,
+                        "metadata": metadata or {},
+                    })
                 return out
             else:
                 raise LanceDBError("table.search not available on this lancedb client version")
@@ -102,11 +147,31 @@ class LanceDBManager:
         # create a table/collection with name
         try:
             if hasattr(self.client, "create_table"):
-                # create an empty table with expected fields; some versions accept schema
+                if overwrite:
+                    try:
+                        if hasattr(self.client, "drop_table"):
+                            self.client.drop_table(name)
+                    except Exception:
+                        pass
+
+                schema = None
+                if pa is not None:
+                    schema = pa.schema([
+                        pa.field("embedding", pa.list_(pa.float32(), list_size=3)),
+                        pa.field("metadata", pa.string()),
+                    ])
+
                 try:
-                    self.client.create_table(name)
+                    self.client.create_table(name, schema=schema, exist_ok=True)
+                except TypeError:
+                    try:
+                        self.client.create_table(name, schema=schema)
+                    except Exception:
+                        try:
+                            self.client.create_table(name)
+                        except Exception:
+                            pass
                 except Exception:
-                    # ignore if exists
                     pass
             return LanceCollection(self.client, name)
         except Exception as e:
@@ -115,8 +180,15 @@ class LanceDBManager:
     def connect(self, name: str) -> LanceCollection:
         # check existence heuristically
         try:
-            # many clients will raise when opening non-existent table
-            return LanceCollection(self.client, name)
+            collection = LanceCollection(self.client, name)
+            if collection.table is None and hasattr(self.client, "table_names"):
+                try:
+                    names = set(self.client.table_names())
+                    if name not in names:
+                        raise LanceDBError(f"DB '{name}' does not exist")
+                except Exception:
+                    pass
+            return collection
         except Exception as e:
             raise LanceDBError(f"failed to open DB '{name}': {e}")
 

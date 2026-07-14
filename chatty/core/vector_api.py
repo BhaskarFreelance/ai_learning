@@ -5,6 +5,13 @@ import requests
 
 from sentence_transformers import SentenceTransformer
 
+try:
+    from chatty.helpers.hf_auth import configure_hf_token
+except ImportError:
+    from helpers.hf_auth import configure_hf_token
+
+configure_hf_token()
+
 from .lance_db import LanceDBManager, LanceDBError
 
 router = APIRouter()

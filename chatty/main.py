@@ -1,8 +1,14 @@
 import uvicorn
 from fastapi import FastAPI
-from core.vector_api import router as vector_router
-from core.prompt_api import router as prompt_router
-from core.chat_api import router as chat_router
+
+try:
+    from chatty.core.vector_api import router as vector_router
+    from chatty.core.prompt_api import router as prompt_router
+    from chatty.core.chat_api import router as chat_router
+except ImportError:
+    from core.vector_api import router as vector_router
+    from core.prompt_api import router as prompt_router
+    from core.chat_api import router as chat_router
 
 app = FastAPI(title="Chatty API", version="1.0.0")
 

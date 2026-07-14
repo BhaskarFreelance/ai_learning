@@ -6,9 +6,20 @@ import json
 
 from sentence_transformers import SentenceTransformer
 
+try:
+    from chatty.helpers.hf_auth import configure_hf_token
+except ImportError:
+    from helpers.hf_auth import configure_hf_token
+
+configure_hf_token()
+
 from .lance_db import LanceDBManager, LanceDBError
 from .sqlite_manager import SQLiteManager, ChatSessionManager, APILogManager
-from ..helpers.connection import OppenAI
+
+try:
+    from chatty.helpers.connection import OppenAI
+except ImportError:
+    from helpers.connection import OppenAI
 
 router = APIRouter(prefix="/chat")
 
@@ -28,7 +39,7 @@ def chat(
     session_id: Optional[str] = Body(None, embed=True),
     top_k: int = Body(5, embed=True),
     embed_model: str = Body("all-MiniLM-L6-v2", embed=True),
-    openai_model: str = Body("gpt-3.5-turbo", embed=True),
+    openai_model: str = Body("gpt-3.5-turbo-instruct", embed=True),
     temperature: float = Body(0.7, embed=True),
 ):
     """Retrieve relevant docs from the named vector DB, then call OpenAI chat completion.

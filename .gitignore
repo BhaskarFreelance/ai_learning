@@ -7,3 +7,12 @@ __pycache__/
 .venv/
 venv/
 chatty/.env
+
+# Local database data
+chatty/dbs/
+
+# Test artifacts
+chatty/tests/__pycache__/
+chatty/tests/.pytest_cache/
+chatty/tests/test_connection.py
+chatty/tests/test_hf_auth.py
