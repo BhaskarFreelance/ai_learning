@@ -4,7 +4,10 @@ import os
 import time
 import json
 
-from sentence_transformers import SentenceTransformer
+try:
+    from chatty.helpers.embeddings import EmbeddingModel, get_embed_model as get_embedding_model
+except ImportError:
+    from helpers.embeddings import EmbeddingModel, get_embed_model as get_embedding_model
 
 try:
     from chatty.helpers.hf_auth import configure_hf_token
@@ -23,12 +26,12 @@ except ImportError:
 
 router = APIRouter(prefix="/chat")
 
-_embed_model_cache: Dict[str, SentenceTransformer] = {}
+_embed_model_cache: Dict[str, EmbeddingModel] = {}
 
 
-def get_embed_model(name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
+def get_embed_model(name: str = "all-MiniLM-L6-v2") -> EmbeddingModel:
     if name not in _embed_model_cache:
-        _embed_model_cache[name] = SentenceTransformer(name)
+        _embed_model_cache[name] = get_embedding_model(name)
     return _embed_model_cache[name]
 
 
@@ -39,7 +42,7 @@ def chat(
     session_id: Optional[str] = Body(None, embed=True),
     top_k: int = Body(5, embed=True),
     embed_model: str = Body("all-MiniLM-L6-v2", embed=True),
-    openai_model: str = Body("gpt-3.5-turbo-instruct", embed=True),
+    openai_model: str = Body("gpt-4o-mini", embed=True),
     temperature: float = Body(0.7, embed=True),
 ):
     """Retrieve relevant docs from the named vector DB, then call OpenAI chat completion.

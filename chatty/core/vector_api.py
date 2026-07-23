@@ -2,8 +2,13 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional, List
 import os
 import requests
+from io import BytesIO
+from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
+try:
+    from chatty.helpers.embeddings import EmbeddingModel, get_embed_model
+except ImportError:
+    from helpers.embeddings import EmbeddingModel, get_embed_model
 
 try:
     from chatty.helpers.hf_auth import configure_hf_token
@@ -16,13 +21,41 @@ from .lance_db import LanceDBManager, LanceDBError
 
 router = APIRouter()
 
-_model_cache = {}
+def get_model(name: str = "all-MiniLM-L6-v2") -> EmbeddingModel:
+    return get_embed_model(name)
 
 
-def get_model(name: str = "all-MiniLM-L6-v2") -> SentenceTransformer:
-    if name not in _model_cache:
-        _model_cache[name] = SentenceTransformer(name)
-    return _model_cache[name]
+def extract_text_from_pdf(raw_bytes: bytes) -> str:
+    """Extract text from a PDF file using pypdf and, when needed, OCR."""
+    try:
+        from pypdf import PdfReader
+    except Exception as exc:
+        raise RuntimeError(f"PDF extraction requires pypdf: {exc}") from exc
+
+    reader = PdfReader(BytesIO(raw_bytes))
+    pages = []
+    for page in reader.pages:
+        text = page.extract_text() or ""
+        if text.strip():
+            pages.append(text)
+            continue
+
+        try:
+            import pytesseract
+            from PIL import Image
+            import fitz
+        except Exception:
+            raise RuntimeError("OCR dependencies are unavailable; install pytesseract, Pillow, and Tesseract OCR")
+
+        try:
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            text = pytesseract.image_to_string(img)
+        except Exception as exc:
+            raise RuntimeError(f"OCR failed: {exc}") from exc
+        pages.append(text)
+
+    return "\n\n".join(pages).strip()
 
 
 def split_text(text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
@@ -71,13 +104,20 @@ async def create_vector_db(
             raise HTTPException(status_code=400, detail=f"failed to fetch url: {e}")
     elif file:
         raw = await file.read()
-        try:
-            content = raw.decode("utf-8")
-        except Exception:
+        filename = (file.filename or "").lower()
+        if filename.endswith(".pdf"):
             try:
-                content = raw.decode("latin-1")
+                content = extract_text_from_pdf(raw)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"failed to extract PDF text: {e}")
+        else:
+            try:
+                content = raw.decode("utf-8")
             except Exception:
-                raise HTTPException(status_code=400, detail="could not decode uploaded file")
+                try:
+                    content = raw.decode("latin-1")
+                except Exception:
+                    raise HTTPException(status_code=400, detail="could not decode uploaded file")
     else:
         content = text or ""
 
