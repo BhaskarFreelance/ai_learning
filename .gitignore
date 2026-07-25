@@ -12,7 +12,13 @@ chatty/.env
 chatty/dbs/
 
 # Test artifacts
+chatty/tests/
 chatty/tests/__pycache__/
 chatty/tests/.pytest_cache/
 chatty/tests/test_connection.py
 chatty/tests/test_hf_auth.py
+chatty/tmp_*.py
+chatty/inspect_pdf.py
+chatty/sample_text.txt
+.pytest_cache/
+**/__pycache__/

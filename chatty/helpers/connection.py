@@ -24,10 +24,12 @@ load_environment()
 def resolve_model(model: str | None) -> str:
 	"""Return a chat-compatible model name for the application's chat endpoint."""
 	if not model:
-		return "gpt-4o-mini"
+		return "gpt-3.5-turbo"
 	model_name = model.strip()
 	if model_name in {"gpt-3.5-turbo-instruct", "gpt-3.5-turbo"}:
-		return "gpt-4o-mini"
+		return "gpt-3.5-turbo"
+	if model_name in {"gpt-4o-mini", "gpt-4.1-mini"}:
+		return "gpt-3.5-turbo"
 	return model_name
 
 
